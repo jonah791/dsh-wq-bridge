@@ -1,0 +1,4 @@
+# dsh-wq-bridge: WorldQuant BRAIN 平台桥（Python Bridge 模式）
+- insert:
+    - id: wq-bridge
+      name: dsh-wq-bridge
