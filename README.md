@@ -4,6 +4,17 @@
 
 > 状态：v0.3（阶段 1-4 完成：27 工具 + 全主 agent 挖掘循环实证）。DSH 为预览版（0.1.0-rc），无兼容承诺。
 
+
+## 安装
+
+```bash
+cd <你的 self-plugins 目录>
+git clone https://github.com/jonah791/dsh-wq-bridge.git
+cd dsh-wq-bridge
+pnpm install
+pnpm build
+```
+
 ## 架构
 
 ```
@@ -89,3 +100,7 @@ node node_modules/typescript/lib/tsc.js -p tsconfig.json && node --test
 ## 演进
 
 - 后续：四域拆分（mine/analyze/knowledge 独立插件）按需进行；领域知识桥接 dsh-agent-memory
+
+## License
+
+MIT
