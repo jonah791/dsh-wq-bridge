@@ -101,6 +101,10 @@ node node_modules/typescript/lib/tsc.js -p tsconfig.json && node --test
 
 - 后续：四域拆分（mine/analyze/knowledge 独立插件）按需进行；领域知识桥接 dsh-agent-memory
 
+## 相关
+
+- [我的数字生命爱丽丝 — 插件生态中心（架构总览）](https://github.com/jonah791/alice-digital-life)
+
 ## License
 
 MIT
