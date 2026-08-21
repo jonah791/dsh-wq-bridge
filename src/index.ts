@@ -27,7 +27,7 @@ export interface Config {
 }
 export const Config = z.object({
   pythonBin: z.string().default('python'),
-  envFile: z.string().default('C:/Users/tr/Documents/alice/projects/self/alphafactory/.env'),
+  envFile: z.string().default('E:/alice/projects/self/alphafactory/.env'),
   timeoutMs: z.number().default(120000),
 })
 
@@ -50,6 +50,8 @@ function loadEnvFile(path: string): Record<string, string> {
 export function apply(ctx: Context, config: Config): void {
   const pyScript = join(HERE, '../python/bridge_server.py')
   const env = loadEnvFile(config.envFile)
+  // ALPHA_ROOT 注入：envFile 位于 <ALPHA_ROOT>/alphafactory/.env → 向上两级
+  if (!env.ALPHA_ROOT) env.ALPHA_ROOT = dirname(dirname(config.envFile))
   const bridge = new PythonBridge(pyScript, config.pythonBin, env)
   ctx.effect(() => () => bridge.dispose(), 'wq-bridge.dispose')
 

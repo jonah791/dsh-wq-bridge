@@ -5,8 +5,10 @@
 import sys, json, os
 
 # AlphaFactory 包根（projects/self 是 Python 包根，alphafactory 是其中的包）
-ALPHA_ROOT = r"C:/Users/tr/Documents/alice/projects/self"
+# 环境变量 ALPHA_ROOT 优先（TS 壳注入），默认 E 盘实际位置（2026-08-17 修复路径漂移）
+ALPHA_ROOT = os.environ.get("ALPHA_ROOT", r"E:/alice/projects/self")
 sys.path.insert(0, ALPHA_ROOT)
+_RESULTS = os.path.join(ALPHA_ROOT, "alphafactory", "results")
 
 _orch = None
 
@@ -22,7 +24,7 @@ def orch():
             raise RuntimeError("WQ_USERNAME/WQ_PASSWORD 环境变量缺失（.env 需注入）")
         _orch = AlphaOrchestrator(QuantAlphaConfig(
             wq_username=username, wq_password=password,
-            output_dir=r"C:/Users/tr/Documents/alice/projects/self/alphafactory/results",
+            output_dir=_RESULTS,
             session_name="v5_auto_20260806",
         ))
     return _orch
@@ -234,7 +236,7 @@ def handle(req):
     # ── knowledge 域（档案确定性查询） ──
     if method == "knowledge_blindspots":
         import json as _json
-        p = r"C:/Users/tr/Documents/alice/projects/self/alphafactory/results/blindspot_registry.json"
+        p = os.path.join(_RESULTS, "blindspot_registry.json")
         try:
             with open(p, encoding="utf-8") as fh:
                 data = _json.load(fh)
@@ -257,28 +259,28 @@ def handle(req):
         except Exception as e:
             return {"ok": False, "error": f"blindspots: {e}"}
     if method == "knowledge_summary":
-        p = r"C:/Users/tr/Documents/alice/projects/self/alphafactory/results/blindspot_summary.json"
+        p = os.path.join(_RESULTS, "blindspot_summary.json")
         try:
             with open(p, encoding="utf-8") as fh:
                 return {"ok": True, "summary": _json_load(fh)}
         except Exception as e:
             return {"ok": False, "error": f"summary: {e}"}
     if method == "knowledge_meme":
-        p = r"C:/Users/tr/Documents/alice/projects/self/alphafactory/results/meme_registry.json"
+        p = os.path.join(_RESULTS, "meme_registry.json")
         try:
             with open(p, encoding="utf-8") as fh:
                 return {"ok": True, "meme": _json_load(fh)}
         except Exception as e:
             return {"ok": False, "error": f"meme: {e}"}
     if method == "knowledge_templates":
-        p = r"C:/Users/tr/Documents/alice/projects/self/alphafactory/results/expression_templates.json"
+        p = os.path.join(_RESULTS, "expression_templates.json")
         try:
             with open(p, encoding="utf-8") as fh:
                 return {"ok": True, "templates": _json_load(fh)}
         except Exception as e:
             return {"ok": False, "error": f"templates: {e}"}
     if method == "knowledge_family_tree":
-        p = r"C:/Users/tr/Documents/alice/projects/self/alphafactory/results/family_tree.json"
+        p = os.path.join(_RESULTS, "family_tree.json")
         try:
             with open(p, encoding="utf-8") as fh:
                 return {"ok": True, "tree": _json_load(fh)}
@@ -286,7 +288,7 @@ def handle(req):
             return {"ok": False, "error": f"family_tree: {e}"}
     if method == "knowledge_dead_roots":
         import json as _json2
-        base = r"C:/Users/tr/Documents/alice/projects/self/alphafactory/results"
+        base = _RESULTS
         try:
             extra_p = base + "/dead_semantic_roots_extra.json"
             extra = []
@@ -294,7 +296,7 @@ def handle(req):
                 extra = _json2.load(fh)
             # 内置词根从 orchestrator 常量读取
             import re as _re
-            src = open(r"C:/Users/tr/Documents/alice/projects/self/alphafactory/orchestrator.py", encoding="utf-8").read()
+            src = open(os.path.join(ALPHA_ROOT, "alphafactory", "orchestrator.py"), encoding="utf-8").read()
             m = _re.search(r"_DEAD_SEMANTIC_ROOTS = \((.*?)\)", src, _re.S)
             builtin = _re.findall(r'"(_[a-z0-9_]+)"', m.group(1)) if m else []
             return {"ok": True, "builtin": builtin, "extra": extra, "total": len(builtin) + len(extra)}
