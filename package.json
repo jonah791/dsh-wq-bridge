@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "dsh-wq-bridge",
   "version": "0.1.0",
   "description": "WorldQuant BRAIN 平台桥（Python Bridge 模式）：TS 壳管理 Python 子进程（stdio JSON-RPC），向 DSH 工具面暴露 AlphaFactory 平台能力",
