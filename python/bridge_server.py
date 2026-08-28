@@ -38,7 +38,9 @@ def handle(req):
     method = req.get("method", "")
     params = req.get("params") or {}
     if method == "ping":
-        return {"ok": True, "pong": True, "py": sys.version.split()[0]}
+        # 2026-08-27 增强：暴露 sys.executable——诊断 PATH 里的 python 是否为 shim/launcher
+        # （hermes venv python 转发 cpython-3.11 的双进程问题靠它一眼可见）
+        return {"ok": True, "pong": True, "py": sys.version.split()[0], "executable": sys.executable}
     if method == "alpha_count":
         o = orch()
         return {"ok": True,
@@ -58,6 +60,37 @@ def handle(req):
         o = orch()
         try:
             ctx = o.get_context_explore()
+            # 2026-08-26 分块增强：section 参数按节标题提取子上下文——60K 全文会被
+            # 入口守卫折叠（成员读不全 Untouched Grid 教训），分节按需取解决。
+            section = params.get("section") or ""
+            if section:
+                import re as _re
+                # 节标题映射（对齐 render_context_explore 真实标题，2026-08-26 修正）：
+                # grid/fields/datasets/operators/saturation/blindspots/meme/weak/combo
+                _key = {
+                    "grid": "untouched grid", "fields": "field library", "datasets": "dataset utilization",
+                    "operators": "operator utilization", "saturation": "signal family saturation",
+                    "blindspots": "known blindspots", "meme": "meme", "weak": "weak signal pool",
+                    "combo": "golden combos",
+                }.get(section, section.lower())
+                lines = ctx.split("\n")
+                # 所有二级标题行（## 或 ## ⚡，排除 ###）——用于确定节边界
+                _all_h2 = [i for i, l in enumerate(lines) if _re.match(r"^##(?!#)", l)]
+                # 命中目标节：匹配关键词的二级标题
+                hits = [i for i in _all_h2 if _key in lines[i].lower()]
+                if not hits:
+                    # combo 兜底：组合方法论速查（中文标题）
+                    if section == "combo":
+                        hits = [i for i in _all_h2 if lines[i].startswith("## 组合方法论速查")]
+                if hits:
+                    start = hits[0]
+                    # 节边界 = 下一个任意二级标题（修复 2026-08-26：之前用 hits 内找下一个
+                    # 导致唯一命中时提取到文件尾——grid 节+后续所有节 62K 误判）
+                    end = next((i for i in _all_h2 if i > start), len(lines))
+                    ctx = "\n".join(lines[start:end]).strip()
+                else:
+                    return {"ok": True, "context": "",
+                            "note": f"section '{section}' 未找到（关键词 '{_key}'）——返回空，请用全量"}
             return {"ok": True, "context": ctx}
         except Exception as e:
             return {"ok": False, "error": f"context: {e}"}
@@ -77,9 +110,30 @@ def handle(req):
             return {"ok": False, "error": "expression required"}
         try:
             import time as _t
+            # 2026-08-28：settings_override 字符串防御——TS 侧 json schema 接受任意 JSON，
+            # 子代理误传 JSON 字符串时 wq_api **kwargs unpack 会 TypeError（白耗一次调用）。
+            # 统一解析为 dict；非对象/解析失败返回明确错误。
+            settings_override = params.get("settings_override")
+            if isinstance(settings_override, str):
+                try:
+                    settings_override = json.loads(settings_override)
+                except Exception as _e:
+                    return {"ok": False, "error": f"simulate: settings_override 是字符串但 JSON 解析失败（应为六项对象）: {_e}"}
+            if settings_override is not None and not isinstance(settings_override, dict):
+                return {"ok": False, "error": "simulate: settings_override 必须是 JSON 对象（neutralization/decay/nanHandling/truncation/pasteurization/unitHandling 六项）"}
+            # 2026-08-28：simulate 前自动 R116 去重预检——不依赖子代理手动 check_expression，
+            # 交换律等价（duplicate_of）直接拦截，零配额消耗（R116 意图落地为工具保护）。
+            try:
+                _chk = o.check_expression(expr)
+                _dups = [e for e in (_chk.get("errors") or []) if "duplicate_of" in e]
+                if _dups:
+                    return {"ok": False, "error": f"simulate: {_dups[0]}（自动去重预检，未消耗配额）"}
+            except Exception:
+                pass  # 预检失败不阻断 simulate（保守放行）
             result = o.simulate(expr,
                                 universe=params.get("universe"),
-                                settings_override=params.get("settings_override"))
+                                settings_override=settings_override,
+                                with_consistency=bool(params.get("with_consistency")))
             return {"ok": True, "simulation": result}
         except Exception as e:
             return {"ok": False, "error": f"simulate: {type(e).__name__}: {e}"}
@@ -180,7 +234,7 @@ def handle(req):
         o = orch()
         try:
             r = o.add_weak_signal(
-                expr=params.get("expression", ""),
+                expression=params.get("expression", ""),
                 alpha_id=params.get("alpha_id", ""),
                 sharpe=params.get("sharpe", 0) or 0,
                 fitness=params.get("fitness", 0) or 0,
@@ -201,7 +255,12 @@ def handle(req):
     if method == "compute_correlation":
         o = orch()
         try:
-            r = o.compute_correlation(params.get("alpha_id", ""))
+            # 2026-08-28：口径选择透传——include_ready=True 全库（submitted+ready，保守默认），
+            # False 仅 ACTIVE（与 WQ 提交 SELF_CORRELATION 判定一致）
+            include_ready = params.get("include_ready", True)
+            if not isinstance(include_ready, bool):
+                include_ready = str(include_ready).lower() in ("1", "true", "yes")
+            r = o.compute_correlation(params.get("alpha_id", ""), include_ready=include_ready)
             return {"ok": True, "corr": r}
         except Exception as e:
             return {"ok": False, "error": f"corr: {e}"}
@@ -262,7 +321,15 @@ def handle(req):
         p = os.path.join(_RESULTS, "blindspot_summary.json")
         try:
             with open(p, encoding="utf-8") as fh:
-                return {"ok": True, "summary": _json_load(fh)}
+                s = _json_load(fh)
+            # 2026-08-27 分块增强：102 条规律全文 15K+ 会被入口守卫折叠——只返回前 20 条 + 计数提示，
+            # 对齐 explore 上下文的 _BS_SHOW=20（细查用 wq_knowledge_blindspots）。
+            rules = s.get("rules") or []
+            _SHOW = 20
+            if len(rules) > _SHOW:
+                s["rules"] = rules[:_SHOW]
+                s["truncated"] = len(rules) - _SHOW
+            return {"ok": True, "summary": s}
         except Exception as e:
             return {"ok": False, "error": f"summary: {e}"}
     if method == "knowledge_meme":

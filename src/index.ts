@@ -11,7 +11,6 @@ import { readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { PythonBridge } from './bridge.js'
 
 export const name = 'wq-bridge'
@@ -61,11 +60,11 @@ export function apply(ctx: Context, config: Config): void {
   // ---------- wq_ping：连通性 ----------
   ctx.tools.register(defineTool({
     name: 'wq_ping',
-    description: '测试 WQ 桥连通性（Python 子进程存活 + 版本）。',
+    description: '测试 WQ 桥连通性（Python 子进程存活 + 版本 + 真实解释器路径）。executable 暴露 sys.executable——诊断 PATH 里 python 是否为 shim/launcher（2026-08-27 双桥根因增强）。',
     parameters: {},
     output: {
-      schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, pong: { type: 'boolean', required: true }, py: { type: 'string', required: true } } },
-      render: (a, v) => [{ type: 'text', text: v.ok ? '桥连通 (Python ' + v.py + ')' : '桥异常' }],
+      schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, pong: { type: 'boolean', required: true }, py: { type: 'string', required: true }, executable: { type: 'string', required: true } } },
+      render: (a, v) => [{ type: 'text', text: (v.ok ? '桥连通 (Python ' + v.py + ')' : '桥异常') + '\n解释器: ' + (v.executable ?? '?') }],
     },
     async execute() {
       return await call('ping')
@@ -113,14 +112,24 @@ export function apply(ctx: Context, config: Config): void {
   // ---------- wq_context_explore：探索上下文 ----------
   ctx.tools.register(defineTool({
     name: 'wq_context_explore',
-    description: '探索模式上下文（字段库/算子库/未用格点/盲点摘要/模因/组合方法论）——挖掘轮开局必读，信息面完整渲染。',
-    parameters: {},
+    description: '探索模式上下文（字段库/算子库/未用格点/盲点摘要/模因/组合方法论）——挖掘轮开局必读。section 可选分块（grid/fields/datasets/operators/saturation/blindspots/meme/weak/combo），只取一节避免 60K 全文被入口守卫折叠（2026-08-26 增强）。',
+    parameters: {
+      section: { type: 'string', description: '只取指定节：grid/fields/datasets/operators/saturation/blindspots/meme/weak/combo；留空=全量' },
+    },
     output: {
       schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, context: { type: 'string', required: true } } },
-      render: (a, v) => [{ type: 'text', text: '探索上下文已获取（' + v.context.length + ' 字符）' }],
+      // 2026-08-27 修复：之前 render 只显示长度摘要（"N 字符·节:xx"）——成员看不到 context 内容
+      // （功能有但不可见，t10 反馈）。改为显示 context 前 1500 字符，直接可见内容；完整在 tool result。
+      render: (a, v) => {
+        const ctx = v.context ?? ''
+        const head = ctx.slice(0, 1500)
+        const lines = [`探索上下文${a.section ? '·节:' + a.section : ''}（${ctx.length} 字符）:`, head]
+        if (ctx.length > 1500) lines.push('...（完整内容在 tool result，需全文可用 expand）')
+        return [{ type: 'text' as const, text: lines.join('\n') }]
+      },
     },
-    async execute() {
-      const r = await call<{ ok: boolean; context?: string; error?: string }>('context_explore')
+    async execute(args) {
+      const r = await call<{ ok: boolean; context?: string; error?: string }>('context_explore', { section: args.section })
       if (!r.ok) throw new Error(r.error ?? 'context_explore failed')
       return { ok: true, context: r.context ?? '' }
     },
@@ -129,22 +138,47 @@ export function apply(ctx: Context, config: Config): void {
   // ---------- 核心工具面（阶段 2：dsh-alpha-mine 前置） ----------
 
   // 通用渲染：JSON 文本
+  // 2026-08-27 修复类型错误：去掉显式 ContentBlock[] 返回标注——dsh-llm 双版本导致 ContentBlock
+  // 类型实例冲突（node_modules 根 vs .pnpm），显式标注让 jsonRender 的返回类型与 schema 期望不兼容
+  // → 构建 exit 1（虽然 tsc 仍 emit）。改隐式推断（wq_simulate 已验证不报错）。
   type JsonValue = string | number | boolean | null | JsonValue[] | { [k: string]: JsonValue }
-  const jsonRender = (prefix: string) => (a: Record<string, unknown>, v: Record<string, unknown>): ContentBlock[] =>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jsonRender = (prefix: string) => (a: Record<string, unknown>, v: Record<string, unknown>): any =>
     [{ type: 'text' as const, text: prefix + JSON.stringify(v).slice(0, 2000) }]
 
   // wq_simulate：核心挖掘动作（90s+ 长调用）
+  // 2026-08-27 增强：自定义 render 摘要——核心指标 + consistency 摘要总可见。
+  // 之前用 jsonRender 截断 2000 字符，with_consistency 的 consistency 字段在 JSON 末尾被截掉看不到（功能有但结果不可见=白做）。
   ctx.tools.register(defineTool({
     name: 'wq_simulate',
-    description: 'WQ 回测一个表达式（~90-150s）。universe 只传股票池名（TOP3000 等），region 才是 USA。settings_override 传六项（neutralization/decay/nanHandling/truncation/pasteurization/unitHandling）。返回 SimulationResult（含 sharpe/fitness/turnover/checks/effective_settings）。',
+    description: 'WQ 回测一个表达式（~90-150s）。universe 只传股票池名（TOP3000 等），region 才是 USA。settings_override 传六项（neutralization/decay/nanHandling/truncation/pasteurization/unitHandling）。返回 SimulationResult（含 sharpe/fitness/turnover/checks/effective_settings）。with_consistency=true 时自动补跑年度一致性检查（返回 consistency 字段，V3b 教训 2026-08-26）。',
     parameters: {
       expression: { type: 'string', required: true, description: 'FASTEXPR 表达式（≤500 字符）' },
       universe: { type: 'string', description: '股票池（TOP3000 等）' },
       settings_override: { type: 'json', description: '六项设置覆盖' },
+      with_consistency: { type: 'boolean', description: 'simulate 后自动补跑年度一致性（consistency 字段），默认 false' },
     },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, simulation: { type: 'json', required: true } } }, render: jsonRender('simulate: ') },
+    output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, simulation: { type: 'json', required: true } } }, render: (a, v) => {
+      const s = (v.simulation ?? {}) as Record<string, unknown>
+      // 2026-08-27 修复（pension render bug 根因）：simulate 失败（success=false + error）时
+      // 旧 render 只显示 S=? F=? 把 error 吞了——误以为「字段解析 bug」。现在优先显示 error。
+      if (s.success === false) {
+        const err = String(s.error ?? 'unknown error')
+        const empty = s.empty_factor ? ' [EMPTY_FACTOR]' : ''
+        return [{ type: 'text' as const, text: `simulate FAILED${empty}: ${err}` }]
+      }
+      const lines = [`simulate: S=${String(s.sharpe ?? '?')} F=${String(s.fitness ?? '?')} TO=${String(s.turnover ?? '?')} returns=${String(s.returns ?? '?')} alpha=${String(s.alpha_id ?? '?')}`]
+      if (s.empty_factor) lines.push('⚠️ EMPTY_FACTOR（PnL 全零/longCount=0，勿再 simulate 同字段）')
+      const checks = s.checks as Record<string, string> | undefined
+      if (checks && typeof checks === 'object') lines.push('checks: ' + Object.entries(checks).map(([k, val]) => `${k}=${String(val)}`).join(' '))
+      const c = s.consistency as Record<string, unknown> | undefined
+      if (c && typeof c === 'object') {
+        lines.push(`consistency: passed=${String(c.passed ?? '?')} years=${String(c.years ?? '?')} pos=${String(c.positive_years ?? '?')} retention=${String(c.retention ?? '?')} minSh= ${String(c.min_sharpe ?? '?')}`)
+      }
+      return [{ type: 'text' as const, text: lines.join('\n') }]
+    } },
     async execute(args) {
-      const r = await call<{ ok: boolean; simulation?: unknown; error?: string }>('simulate', { expression: args.expression, universe: args.universe, settings_override: args.settings_override }, 300_000)
+      const r = await call<{ ok: boolean; simulation?: unknown; error?: string }>('simulate', { expression: args.expression, universe: args.universe, settings_override: args.settings_override, with_consistency: args.with_consistency }, 300_000)
       if (!r.ok) throw new Error(r.error ?? 'simulate failed')
       return { ok: true, simulation: r.simulation as JsonValue }
     },
@@ -190,6 +224,8 @@ export function apply(ctx: Context, config: Config): void {
   }))
 
   // wq_evaluate_submittability：四关评估
+  // 2026-08-27 增强：自定义 render 摘要——submittable/gates/max_corr/blocks/ready_note 总可见。
+  // 之前用 jsonRender 截断 2000 字符，blocks/ready_note 在末尾被截掉（与 simulate consistency 同款缺陷）。
   ctx.tools.register(defineTool({
     name: 'wq_evaluate_submittability',
     description: '四关评估：Gate1 七项 checks → Gate2 PnL corr<0.6576（平台实测被拒线）→ Gate3 S≥1.5 且 F≥1.5 → Gate4 年度一致性（fail-closed）。判定前自动 wait_pnl 稳定值。返回 gates/submittable/max_corr/blocks/ready_note。',
@@ -199,7 +235,21 @@ export function apply(ctx: Context, config: Config): void {
       fitness: { type: 'number', required: true },
       checks: { type: 'json', description: 'checks 全量字典 {check_name: PASS/FAIL}' },
     },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, evaluation: { type: 'json', required: true } } }, render: jsonRender('evaluate: ') },
+    output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, evaluation: { type: 'json', required: true } } }, render: (a, v) => {
+      const e = (v.evaluation ?? {}) as Record<string, unknown>
+      const lines = [`evaluate: submittable=${String(e.submittable ?? '?')} max_corr=${String(e.max_corr ?? '?')}`]
+      const gates = e.gates as Record<string, unknown> | undefined
+      if (gates && typeof gates === 'object') {
+        for (const [k, val] of Object.entries(gates)) {
+          const g = val as Record<string, unknown> | undefined
+          lines.push(`  ${k}: ${g && typeof g === 'object' && 'passed' in g ? String(g.passed) : String(val)}${g && typeof g === 'object' && 'detail' in g ? ' — ' + String(g.detail) : ''}`)
+        }
+      }
+      const blocks = e.blocks as unknown
+      if (Array.isArray(blocks) && blocks.length > 0) lines.push('  blocks: ' + blocks.map(String).join(' | '))
+      if (e.ready_note) lines.push('  ready_note: ' + String(e.ready_note))
+      return [{ type: 'text' as const, text: lines.join('\n') }]
+    } },
     async execute(args) {
       const r = await call<{ ok: boolean; evaluation?: unknown; error?: string }>('evaluate_submittability', { alpha_id: args.alpha_id, sharpe: args.sharpe, fitness: args.fitness, checks: args.checks }, 300_000)
       if (!r.ok) throw new Error(r.error ?? 'evaluate failed')
@@ -237,7 +287,15 @@ export function apply(ctx: Context, config: Config): void {
     name: 'wq_context_refine',
     description: '精炼模式上下文（父代链/Refine Targets/blocks 明细）——精炼轮开局必读。',
     parameters: { alpha_id: { type: 'string', required: true } },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, context: { type: 'string', required: true } } }, render: (a, v) => [{ type: 'text', text: '精炼上下文 ' + v.context.length + ' 字符' }] },
+    output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, context: { type: 'string', required: true } } }, render: (a, v) => {
+      // 2026-08-27 修复：之前只显示「精炼上下文 N 字符」——成员看不到父代链/targets/blocks 内容
+      // （t10 反馈「render 只显示摘要」同类问题）。改为显示 context 前 1500 字符。
+      const ctx = v.context ?? ''
+      const head = ctx.slice(0, 1500)
+      const lines = [`精炼上下文（${ctx.length} 字符）:`, head]
+      if (ctx.length > 1500) lines.push('...（完整内容在 tool result，需全文可用 expand）')
+      return [{ type: 'text' as const, text: lines.join('\n') }]
+    } },
     async execute(args) {
       const r = await call<{ ok: boolean; context?: string; error?: string }>('context_refine', { alpha_id: args.alpha_id })
       if (!r.ok) throw new Error(r.error ?? 'context_refine failed')
@@ -326,14 +384,14 @@ export function apply(ctx: Context, config: Config): void {
     },
   }))
 
-  // wq_compute_correlation：单因子 vs ACTIVE 全库
+  // wq_compute_correlation：单因子 vs ACTIVE/全库 PnL 相关（口径可选）
   ctx.tools.register(defineTool({
     name: 'wq_compute_correlation',
-    description: '单因子 vs ACTIVE/全库 PnL 相关（双口径）。评估必须实测，禁止信库内旧值。',
-    parameters: { alpha_id: { type: 'string', required: true } },
+    description: '单因子 PnL 相关（口径可选）：include_ready=true=全库（submitted+ready，保守默认）；false=仅 ACTIVE（与 WQ 提交 SELF_CORRELATION 判定一致，也是 wq_evaluate_submittability Gate2 主口径）。候选池文件 correlation.max_corr/stale_corr 是入库快照——禁止用于提交决策，一律本工具实测（评估必须实测，禁止信库内旧值）。',
+    parameters: { alpha_id: { type: 'string', required: true }, include_ready: { type: 'boolean', description: 'true=全库口径（默认）/ false=仅 ACTIVE' } },
     output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, corr: { type: 'json', required: true } } }, render: jsonRender('corr: ') },
     async execute(args) {
-      const r = await call<{ ok: boolean; corr?: unknown; error?: string }>('compute_correlation', { alpha_id: args.alpha_id })
+      const r = await call<{ ok: boolean; corr?: unknown; error?: string }>('compute_correlation', { alpha_id: args.alpha_id, include_ready: args.include_ready })
       if (!r.ok) throw new Error(r.error ?? 'corr failed')
       return { ok: true, corr: r.corr as JsonValue }
     },
