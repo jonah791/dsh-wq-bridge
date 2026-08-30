@@ -3,3 +3,5 @@ lib/
 *.log
 .dsh/
 data/
+python/__pycache__/
+*.bak-schema
