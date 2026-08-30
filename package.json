@@ -1,39 +1,39 @@
 {
-  "name": "dsh-wq-bridge",
-  "version": "0.1.0",
-  "description": "WorldQuant BRAIN 平台桥（Python Bridge 模式）：TS 壳管理 Python 子进程（stdio JSON-RPC），向 DSH 工具面暴露 AlphaFactory 平台能力",
-  "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./lib/types/index.d.ts",
-      "default": "./lib/index.js"
-    },
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "lib",
-    "python"
-  ],
-  "license": "MIT",
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
-    "@deepseek-ai/schemastery": "^3.18.1-rc.1"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.9.3"
-  },
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  }
+    "name":  "dsh-wq-bridge",
+    "version":  "0.1.1",
+    "description":  "WorldQuant BRAIN 平台桥（Python Bridge 模式）：TS 壳管理 Python 子进程（stdio JSON-RPC），向 DSH 工具面暴露 AlphaFactory 平台能力",
+    "type":  "module",
+    "main":  "lib/index.js",
+    "types":  "lib/types/index.d.ts",
+    "exports":  {
+                    ".":  {
+                              "types":  "./lib/types/index.d.ts",
+                              "default":  "./lib/index.js"
+                          },
+                    "./package.json":  "./package.json"
+                },
+    "files":  [
+                  "lib",
+                  "python"
+              ],
+    "license":  "MIT",
+    "peerDependencies":  {
+                             "@deepseek-ai/cordis":  "^4.0.1-rc.1",
+                             "@deepseek-ai/dsh-tools":  "^0.0.1-rc.1",
+                             "@deepseek-ai/schemastery":  "^3.18.1-rc.1"
+                         },
+    "devDependencies":  {
+                            "@types/node":  "^22.0.0",
+                            "typescript":  "^5.9.3"
+                        },
+    "scripts":  {
+                    "build":  "tsc -p tsconfig.json",
+                    "typecheck":  "tsc -p tsconfig.json --noEmit",
+                    "test":  "tsc -p tsconfig.json \u0026\u0026 node --test"
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           }
+            }
 }
