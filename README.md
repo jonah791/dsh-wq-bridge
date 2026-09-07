@@ -1,5 +1,11 @@
 # dsh-wq-bridge — WorldQuant BRAIN 平台桥（Python Bridge 模式）
 
+
+<p align="center">
+  <a href="https://github.com/jonah791/dsh-wq-bridge"><img src="https://img.shields.io/badge/version-0.1.1-blue" alt="version"></a>
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6" alt="TypeScript">
+</p>
 **为 DeepSeek Harness (DSH) 打造的 AlphaFactory 平台桥**：TS 壳管理 Python 子进程（stdio JSON-RPC），向 DSH 工具面暴露 AlphaFactory 的平台能力。
 
 > 状态：v0.3（阶段 1-4 完成：27 工具 + 全主 agent 挖掘循环实证）。DSH 为预览版（0.1.0-rc），无兼容承诺。
