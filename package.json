@@ -29,7 +29,7 @@
     "scripts":  {
                     "build":  "tsc -p tsconfig.json",
                     "typecheck":  "tsc -p tsconfig.json --noEmit",
-                    "test":  "tsc -p tsconfig.json \u0026\u0026 node --test"
+                    "test":  "node --test \"tests/*.test.mjs\""
                 },
     "dsh":  {
                 "bundle":  {
