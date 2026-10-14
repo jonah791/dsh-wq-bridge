@@ -147,7 +147,7 @@ AlphaFactory results/（六个档案 + pending 池） · WQ BRAIN 平台（经 w
 
 **生效判据（改代码/重启后怎么证明真的生效）**：
 1. **进程级构建判据**：`lib/index.js` 的 mtime **早于**当前 web 进程启动时间（§5.11 口径）。**2026-09-14 补课重建后实测**：`lib/index.js` = `2026-09-14 11:02:43`，而当前 web（pid 12116，按 `<DSH_HOME>/plugin-boot.jsonl` 末行进程自报）启动 = `2026-09-14 10:38:05` ⇒ **产物晚于进程，线上仍跑旧构建**（本次改动**未生效**，等部署窗口；不得自行重启）。**注意**：此判据会随每次重建翻转——判当前状态必须现读两个时间，禁用历史快照（§5.14 规则 2）。
-2. **解释器自证**：`wq_ping.executable` 非空且为真实解释器路径。实测：`C:\Users\tr\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe`（Python 3.11.15）——桥跑在 **hermes venv python** 上，不是系统 python。
+2. **解释器自证**：`wq_ping.executable` 非空且为真实解释器路径。实测：`<home>\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe`（Python 3.11.15）——桥跑在 **hermes venv python** 上，不是系统 python。
 3. **Python 桥存活**：`wq_ping`/`wq_alpha_count` 返回 `ok:true`（而非 `bridge closed`/`bridge timeout`）；进程侧可 `Get-CimInstance Win32_Process | Where CommandLine -like '*bridge_server.py*'` 佐证。
 4. **工具面在场**：本会话工具列表能列出 30 个 `wq_*`（或 `plugin_inspect dsh-wq-bridge` 显示 mounted）。
 5. **证据层生效（2026-09-14 新增，查落盘产物而非「有没有被调用」）**：`tail -n 5 <DSH_HOME>/wq-trace.jsonl` 出现新的 `boot` 行（`build` 含本次构建 mtime），且任意 `wq_*` 调用后追加成对 `begin`/`end`（`end.durationMs` 与实际耗时同量级）。**判「改动是否已生效」= boot 行的 `build` mtime 是否等于当前 `lib/index.js` mtime**。
@@ -159,7 +159,7 @@ AlphaFactory results/（六个档案 + pending 池） · WQ BRAIN 平台（经 w
 |---|-----------|--------------------------------|------|
 | A1 | 工具面恰好 **30** 个 `wq_*`（不是 README 标题的 27） | `grep -c "name: 'wq_" src/index.ts` = 30；本会话工具面同 30 | **已实测**（README 标题与技能描述「27」不符） |
 | A2 | 30 工具与 30 个 Python method 分支 1:1，无死方法 | `grep -c 'if method ==' python/bridge_server.py` = 30 ↔ TS 各 `call('…')` | 已实测（人工比对 30↔30） |
-| A3 | `wq_ping` 返回真实解释器路径 | 实测输出 `解释器: C:\Users\tr\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe` | **已实测** |
+| A3 | `wq_ping` 返回真实解释器路径 | 实测输出 `解释器: <home>\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe` | **已实测** |
 | A4 | 线上跑的是当前构建（进程晚于产物） | `lib/index.js` mtime `2026-09-13 07:19:46` < web pid 7080 启动 `2026-09-14 10:05:47` | **已实测** |
 | A5 | 凭据不落盘、不进工具参数 | `grep -nE "WQ_PASSWORD\|WQ_USERNAME" src/index.ts` 只命中 `loadEnvFile` 结果对象；工具 schema 无凭据字段 | 待验收（源码核对） |
 | A6 | 超时兜底闭环 + 池清空语义 | 造超时 → `_pending_sims.json` 含该表达式 → `wq_recover_pending` 返回 `recovered` 非空；正常结束后 `pending` 数组减 1 | 待验收 |
