@@ -1,0 +1,41 @@
+{
+    "name":  "dsh-wq-bridge",
+    "version":  "0.1.1",
+    "description":  "WorldQuant BRAIN 平台桥（Python Bridge 模式）：TS 壳管理 Python 子进程（stdio JSON-RPC），向 DSH 工具面暴露 AlphaFactory 平台能力",
+    "type":  "module",
+    "main":  "lib/index.js",
+    "types":  "lib/types/index.d.ts",
+    "exports":  {
+                    ".":  {
+                              "types":  "./lib/types/index.d.ts",
+                              "default":  "./lib/index.js"
+                          },
+                    "./package.json":  "./package.json"
+                },
+    "files": [
+                  "lib",
+                  "python",
+                  "dsh-plugin.json"
+    ],
+    "license":  "MIT",
+    "peerDependencies":  {
+                             "@deepseek-ai/cordis":  "^4.0.1",
+                             "@deepseek-ai/dsh-tools":  "^0.1.0-rc.6",
+                             "@deepseek-ai/schemastery":  "^3.18.1-rc.1"
+                         },
+    "devDependencies":  {
+                            "@types/node":  "^22.0.0",
+                            "typescript":  "^5.9.3"
+                        },
+    "scripts":  {
+                    "prepare": "tsc -p tsconfig.json",
+                    "build":  "tsc -p tsconfig.json",
+                    "typecheck":  "tsc -p tsconfig.json --noEmit",
+                    "test":  "node --test \"tests/*.test.mjs\""
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           }
+            }
+}
