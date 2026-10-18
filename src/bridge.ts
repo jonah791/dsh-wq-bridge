@@ -38,6 +38,10 @@ export class PythonBridge {
     this.proc = spawn(this.pythonBin, [this.pyScript], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...env },
+      // Windows：python.exe 是控制台程序，spawn 默认 windowsHide=false ⇒ 会分配并弹出一个
+      // 空白控制台窗口（stdout 被管道接走，所以窗口里什么也不显示）。2026-10-19 主人报「空白 python 窗口」。
+      // 同仓 dsh-comfyui 早已带此参数（其 spawn 为常驻服务，漏了会一直挂一个黑窗），此处补齐。
+      windowsHide: true,
     })
     this.proc.stdout?.on('data', (d: Buffer) => this.onData(d.toString('utf8')))
     this.proc.stderr?.on('data', (d: Buffer) => {
